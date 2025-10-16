@@ -5,7 +5,7 @@ import MongoStore from 'connect-mongo';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { CONFIG } from './config/env.js'; 
+import { CONFIG } from './config/env.js';
 import authRoutes from './routes/auth.js';
 
 
@@ -40,8 +40,8 @@ app.use(session({
                 httpOnly: true,
                 sameSite: 'lax',
                 secure: false,
-                maxAge: 24 * 60 * 60 * 1000,
-        },
+                maxAge: 24 * 60 * 60 * 1000
+        }
 }));
 
 // Routes

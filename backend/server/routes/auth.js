@@ -96,14 +96,14 @@ router.get('/callback', async (req, res) => {
 
 
 router.get('/me', ensureAuth, async (req, res) => {
-        const merchant = await Merchant.findById(req.merchantId);
+        const merchant = await Merchant.findById(req.session.merchantId);
         if (!merchant) return res.redirect('/auth/install');
         try {
                 const fresh = await refreshAccessTokenIfNeeded(merchant);
-                const api = await sallaApi.get(fresh.tokens.access_token);
                 let brandsJson = null;
                 try {
-                        const { data } = await api.getBrands();
+                        const api = sallaApi(fresh.tokens.access_token);
+                        const { data } = await api.getProducts();
                         brandsJson = data;
                 } catch {
                         brandsJson = { note: 'brands.read scope required or token issue' };
