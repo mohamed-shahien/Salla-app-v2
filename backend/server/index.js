@@ -7,6 +7,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { CONFIG } from './config/env.js';
 import authRoutes from './routes/auth.js';
+import apiRoutes from './routes/api.js';
+
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -14,7 +16,7 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
-app.use(cors({ origin: true, credentials: true }));
+app.use(cors({ origin: CONFIG.FRONTEND_URL, credentials: true }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -46,6 +48,14 @@ app.use(session({
 
 // Routes
 app.use('/auth', authRoutes)
+app.use('/api', apiRoutes);
+
+
+// لوج آوت بسيط
+app.post('/auth/logout', (req, res) => {
+  req.session.destroy(() => res.json({ ok: true }));
+});
+
 
 app.get('/', (req, res) => {
         res.send('✅ Backend is running');

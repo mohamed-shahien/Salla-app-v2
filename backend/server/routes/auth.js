@@ -15,6 +15,20 @@ router.get('/install', (req, res) => {
         const state = crypto.randomBytes(16).toString('hex');
         req.session.oauthState = state;
 
+        // خزن صفحة الرجوع لو جاية من الفرونت
+        const rawNext = req.query.next ? String(req.query.next) : '';
+        if (rawNext) {
+                // اسمح فقط بـ http/https
+                try {
+                        const parsed = new URL(decodeURIComponent(rawNext));
+                        if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+                                req.session.next = rawNext; // لاحظ إنها "encoded" ولسه هنفكها في callback
+                        }
+                } catch {
+                        // تجاهل next غير صالح
+                }
+        }
+
         const u = new URL(CONFIG.AUTH_URL);
         u.searchParams.set('client_id', CONFIG.CLIENT_ID);
         u.searchParams.set('response_type', 'code');
@@ -63,7 +77,7 @@ router.get('/callback', async (req, res) => {
                 const profile = profileRes.data || {};
                 const sallaId = profile?.merchant?.id || profile?.id || null;
 
-
+console.log(profile)
                 const update = {
                         profile,
                         tokens,
@@ -84,9 +98,24 @@ router.get('/callback', async (req, res) => {
                 await new Promise((resolve, reject) => {
                         req.session.regenerate(err => (err ? reject(err) : resolve()));
                 });
+
                 req.session.merchantId = merchant._id;
                 delete req.session.oauthState;
-                return res.redirect('/auth/me');
+
+                const rowNext = req.session.next || `${CONFIG.FRONTEND_URL}/verify`;
+                delete req.session.next;
+                let nextUrl;
+                try {
+                        nextUrl = rawNext ? decodeURIComponent(rawNext) : `${CONFIG.FRONTEND_URL}/verify`;
+                } catch {
+                        nextUrl = `${CONFIG.FRONTEND_URL}/verify`;
+                }
+
+                if (!/^https?:\/\//i.test(nextUrl)) {
+                        nextUrl = `${CONFIG.FRONTEND_URL}/verify`;
+                }
+                return res.redirect(rowNext);
+
         } catch (e) {
                 const msg = e.response?.data || e.message;
                 console.error("Token exchange or profile fetch failed:", msg);
