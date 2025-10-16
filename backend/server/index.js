@@ -53,3 +53,6 @@ app.get('/', (req, res) => {
 
 const PORT = CONFIG.PORT || 3000;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+
+
+// https://chatgpt.com/g/g-p-68a18ccecb848191832fd86b3068fd4e-learn-inspiration-at-now-app-salla/c/68f04ed0-150c-8327-b9e1-66efb2857364
