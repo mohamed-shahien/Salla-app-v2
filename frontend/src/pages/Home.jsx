@@ -1,22 +1,52 @@
-// src/pages/Home.jsx
+import { useEffect } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../store/auth';
 
 export default function Home() {
-  const isAuthed = useAuth((s) => s.session?.authenticated);
-  const loginWithSalla = useAuth((s) => s.loginWithSalla);
+  const navigate = useNavigate();
+  const { isAuthed } = useAuth();
+
+  useEffect(() => {
+    if (isAuthed) navigate('/dashboard', { replace: true });
+  }, [isAuthed, navigate]);
 
   return (
-    <div className="p-6">
-      <h1 className="text-2xl mb-2">مرحبًا 👋</h1>
-      <p className="mb-6">سجّل الدخول عبر سلة للوصول إلى لوحة التحكم الخاصة بمتجرك.</p>
+    <div style={{ minHeight: '100vh', display:'grid', placeItems:'center', padding: 24 }}>
+      <div style={{ maxWidth: 520, textAlign:'center' }}>
+        <h1 style={{ marginBottom: 12 }}>مرحبًا 👋</h1>
+        <p style={{ marginBottom: 24 }}>
+          سجّل دخولك للوصول إلى لوحة التحكم وربط متجرك بسلة.
+        </p>
 
-      {!isAuthed && (
-        <button onClick={loginWithSalla} className="px-4 py-2 bg-black text-white rounded">
-          سجّل الدخول عبر سلة
+        {/* الزر الأساسي */}
+        <button
+          onClick={() => navigate('/login')}
+          style={{
+            padding: '12px 20px',
+            borderRadius: 10,
+            border: '1px solid #111',
+            cursor: 'pointer',
+            fontWeight: 600
+          }}
+        >
+          تسجيل الدخول
         </button>
-      )}
 
-      {isAuthed && <p className="text-green-700">أنت مسجّل دخول بالفعل ✅</p>}
+        {/* أو لو تحب Link بدل onClick */}
+        <div style={{ marginTop: 12, opacity: 0.8 }}>
+          أو <Link to="/login">اذهب لصفحة تسجيل الدخول</Link>
+        </div>
+
+        {/* (اختياري) زر الربط مع سلة مباشرة */}
+        <div style={{ marginTop: 24 }}>
+          <a
+            href={`/auth/install?next=${encodeURIComponent(window.location.origin + '/dashboard')}`}
+            style={{ textDecoration: 'none' }}
+          >
+            ربط/إعادة الربط مع سلة
+          </a>
+        </div>
+      </div>
     </div>
   );
 }

@@ -2,21 +2,20 @@
 import axios from 'axios';
 
 export const api = axios.create({
-        baseURL: import.meta.env.VITE_API_BASE,
-        withCredentials: true,
+  baseURL: '/',              // مهم: relative مع البروكسي
+  withCredentials: true,     // مهم: عشان الكوكي
 });
 
-api.interceptors.response.use(
-        (r) => r,
-        (err) => {
-                // 401 = مش مسجل دخول → خليه يترمي للـ Protected
-                if (err?.response?.status === 401) {
-                        return Promise.reject(Object.assign(err, { _auth401: true }));
-                }
-                // Network error = الباك واقع → useful لو عايز تعرض بانر
-                if (!err.response) {
-                        window.dispatchEvent(new CustomEvent('api:offline'));
-                }
-                return Promise.reject(err);
-        }
-);
+// (اختياري) لو السيرفر رجع reauth، نبعته للمخزن
+export function attach401Interceptor(pushReauth) {
+  api.interceptors.response.use(
+    r => r,
+    err => {
+      const reauth = err?.response?.data?.reauth;
+      if (reauth && typeof pushReauth === 'function') pushReauth(reauth);
+      return Promise.reject(err);
+    }
+  );
+}
+
+export default api;

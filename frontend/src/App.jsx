@@ -1,30 +1,20 @@
 // src/App.jsx
-import { useEffect } from 'react';
 import { Routes, Route } from 'react-router-dom';
-import { useAuth } from './store/auth';
-import Header from './components/Header';
 import Home from './pages/Home';
+import Login from './pages/Login';
+import ChangePassword from './pages/ChangePassword';
 import Dashboard from './pages/Dashboard';
-import NotFound from './pages/NotFound';
+import Reconnect from './pages/Reconnect';
+import ProtectedRoute from './components/ProtectedRoute';
 
 export default function App() {
-  const bootstrap = useAuth((s) => s.bootstrap);
-  const isBootstrapped = useAuth((s) => s.isBootstrapped);
-
-  useEffect(() => {
-    bootstrap();
-  }, [bootstrap]);
-
-  if (!isBootstrapped) return null; // ممكن سكيليتون
-
   return (
-    <div className="min-h-screen">
-      <Header />
-      <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="*" element={<NotFound />} />
-      </Routes>
-    </div>
+    <Routes>
+      <Route path="/login" element={<Login />} />
+      <Route path="/change-password" element={<ProtectedRoute><ChangePassword /></ProtectedRoute>} />
+      <Route path="/reconnect" element={<Reconnect />} />
+      <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+      <Route path="*" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+    </Routes>
   );
 }

@@ -6,9 +6,12 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { CONFIG } from './config/env.js';
-import authRoutes from './routes/auth.js';
+import authRoutes from './routes/auth.route.js';
 import apiRoutes from './routes/api.js';
 
+import Merchant from './models/Merchant.js';
+
+import devRoutes from './routes/dev.js';
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -52,7 +55,24 @@ app.use(session({
         }
 }));
 
-// Routes
+app.use(devRoutes);
+app.use(async (req, res, next) => {
+        try {
+                const sid = req.session?.merchantId;
+                if (sid && !mongoose.Types.ObjectId.isValid(sid)) {
+                        console.log('🧹 sanitizer: non-ObjectId in session', sid);
+                        const m = await Merchant.findOne({ sallaId: sid });
+                        if (m) {
+                                console.log('🧹 sanitizer: mapped sallaId -> _id', m._id.toString());
+                                req.session.merchantId = m._id.toString();
+                        } else {
+                                console.log('🧹 sanitizer: clearing bad merchantId');
+                                delete req.session.merchantId;
+                        }
+                }
+        } catch (e) { console.warn('sanitizer error', e.message); }
+        next();
+});
 app.use('/auth', authRoutes)
 app.use('/api', apiRoutes);
 
@@ -69,6 +89,3 @@ app.get('/', (req, res) => {
 
 const PORT = CONFIG.PORT || 3000;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
-
-
-// https://chatgpt.com/g/g-p-68a18ccecb848191832fd86b3068fd4e-learn-inspiration-at-now-app-salla/c/68f04ed0-150c-8327-b9e1-66efb2857364

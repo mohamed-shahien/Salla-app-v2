@@ -1,41 +1,33 @@
 // src/pages/Dashboard.jsx
-import { useEffect, useState } from 'react';
-import Protected from '../components/Protected';
-import { api } from '../lib/api';
+import { useEffect } from 'react';
+import api from '../lib/api';
+import { useAuth } from '../store/auth';
 
-function Content() {
-  const [brands, setBrands] = useState(null);
-  const [loading, setLoading] = useState(true);
+export default function Dashboard(){
+  const { isAuthed } = useAuth();
 
   useEffect(() => {
     (async () => {
       try {
-        const { data } = await api.get('/api/brands');
-        setBrands(data);
+        const res = await api.get('/auth/me', { headers: { Accept: 'text/html' }});
+        console.log(res)
+        // لو رجع 200 وسيشن شغالة، مفيش حاجة نعملها
       } catch (e) {
-        setBrands({ error: e?.response?.data || e.message });
-      } finally {
-        setLoading(false);
+        if (e?.response?.status === 401) {
+          // خرج بره — خليه يرجع للّوجين
+          window.location.href = '/login';
+        }
       }
     })();
-  }, []);
-
-  if (loading) return <div className="p-6">Loading...</div>;
+  }, [isAuthed]);
 
   return (
-    <div className="p-6">
-      <h1 className="text-xl mb-3">لوحة التحكم</h1>
-      <pre className="bg-gray-100 p-3 rounded overflow-auto text-xs">
-        {JSON.stringify(brands, null, 2)}
-      </pre>
+    <div style={{ padding: 24 }}>
+      <h1>لوحة التحكم</h1>
+      <p>لو احتجت إعادة الربط:</p>
+      <a href={`/auth/install?next=${encodeURIComponent(window.location.origin + '/dashboard')}`}>
+        ربط/إعادة الربط مع سلة
+      </a>
     </div>
-  );
-}
-
-export default function Dashboard() {
-  return (
-    <Protected>
-      <Content />
-    </Protected>
   );
 }
