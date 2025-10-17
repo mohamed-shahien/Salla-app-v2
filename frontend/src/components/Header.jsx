@@ -1,15 +1,11 @@
+// src/components/Header.jsx
 import { useAuth } from '../store/auth';
-import { useNavigate } from 'react-router-dom';
 
 export default function Header() {
-  const { session, logout } = useAuth();
-  const isAuthed = session?.authenticated;
-  const username = session?.merchant?.merchant_username;
-  const navigate = useNavigate();
-
-  const handleLoginClick = () => {
-    navigate('/verify');   // أو '/login' لو غيرت اسم الصفحة
-  };
+  const isAuthed = useAuth((s) => s.session?.authenticated);
+  const username = useAuth((s) => s.session?.merchant?.merchant_username);
+  const loginWithSalla = useAuth((s) => s.loginWithSalla);
+  const logout = useAuth((s) => s.logout);
 
   return (
     <header className="p-4 border-b flex items-center justify-between">
@@ -23,7 +19,7 @@ export default function Header() {
             </button>
           </>
         ) : (
-          <button onClick={handleLoginClick} className="px-3 py-1 bg-black text-white rounded">
+          <button onClick={loginWithSalla} className="px-3 py-1 bg-black text-white rounded">
             سجّل الدخول عبر سلة
           </button>
         )}

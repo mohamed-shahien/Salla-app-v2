@@ -1,3 +1,4 @@
+// src/pages/Dashboard.jsx
 import { useEffect, useState } from 'react';
 import Protected from '../components/Protected';
 import { api } from '../lib/api';

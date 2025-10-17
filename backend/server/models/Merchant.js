@@ -1,4 +1,3 @@
-// models/Merchant.js
 import mongoose from "mongoose";
 const { Schema } = mongoose;
 
@@ -11,19 +10,10 @@ const TokenSchema = new Schema({
         oauth_invalid: { type: Boolean, default: false }
 }, { _id: false });
 
-const LoginOtpSchema = new Schema({
-        code_hash: String,
-        expires_at: Date,
-        attempts: { type: Number, default: 0 },
-        locked_until: Date,
-        sent_to: String
-}, { _id: false });
-
 const MerchantSchema = new Schema({
         sallaId: { type: String, index: true, unique: true, sparse: true },
         profile: { type: Schema.Types.Mixed },
         tokens: TokenSchema,
-        login_otp: LoginOtpSchema,            // 👈 هنا هنخزن الـ OTP
         verified: { type: Boolean, default: false },
         createdAt: { type: Date, default: () => new Date() },
         updatedAt: { type: Date, default: () => new Date() }

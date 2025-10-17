@@ -77,7 +77,7 @@ router.get('/callback', async (req, res) => {
                 const profile = profileRes.data || {};
                 const sallaId = profile?.merchant?.id || profile?.id || null;
 
-console.log(profile)
+                console.log(profile)
                 const update = {
                         profile,
                         tokens,
@@ -95,26 +95,26 @@ console.log(profile)
                 } else {
                         merchant = await Merchant.create({ profile, tokens });
                 }
+                // بعد حفظ السيشن
                 await new Promise((resolve, reject) => {
                         req.session.regenerate(err => (err ? reject(err) : resolve()));
                 });
-
                 req.session.merchantId = merchant._id;
                 delete req.session.oauthState;
 
-                const rowNext = req.session.next || `${CONFIG.FRONTEND_URL}/verify`;
+                // redirect للداشبورد على الفرونت
+                const fallback = new URL('/dashboard', CONFIG.FRONTEND_URL).toString();
+                const rawNext = req.session.next;
                 delete req.session.next;
-                let nextUrl;
-                try {
-                        nextUrl = rawNext ? decodeURIComponent(rawNext) : `${CONFIG.FRONTEND_URL}/verify`;
-                } catch {
-                        nextUrl = `${CONFIG.FRONTEND_URL}/verify`;
-                }
 
-                if (!/^https?:\/\//i.test(nextUrl)) {
-                        nextUrl = `${CONFIG.FRONTEND_URL}/verify`;
-                }
-                return res.redirect(rowNext);
+                let nextUrl = fallback;
+                try {
+                        if (rawNext) {
+                                const dec = decodeURIComponent(rawNext);
+                                if (/^https?:\/\//i.test(dec)) nextUrl = dec;
+                        }
+                } catch { }
+                return res.redirect(nextUrl);
 
         } catch (e) {
                 const msg = e.response?.data || e.message;

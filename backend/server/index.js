@@ -16,7 +16,13 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
-app.use(cors({ origin: CONFIG.FRONTEND_URL, credentials: true }));
+const allowedOrigin = new URL(CONFIG.FRONTEND_URL).origin;
+
+app.use(cors({
+        origin: allowedOrigin,
+        credentials: true
+}));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -53,7 +59,7 @@ app.use('/api', apiRoutes);
 
 // لوج آوت بسيط
 app.post('/auth/logout', (req, res) => {
-  req.session.destroy(() => res.json({ ok: true }));
+        req.session.destroy(() => res.json({ ok: true }));
 });
 
 

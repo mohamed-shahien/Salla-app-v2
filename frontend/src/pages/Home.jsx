@@ -1,25 +1,22 @@
+// src/pages/Home.jsx
 import { useAuth } from '../store/auth';
 
-export default function Header() {
-  const { session, logout, requestOtp } = useAuth();
-  const isAuthed = session?.authenticated;
-  const username = session?.merchant?.merchant_username;
+export default function Home() {
+  const isAuthed = useAuth((s) => s.session?.authenticated);
+  const loginWithSalla = useAuth((s) => s.loginWithSalla);
 
   return (
-    <header className="p-4 border-b flex items-center justify-between">
-      <div className="font-bold">Salla App</div>
-      <div className="flex items-center gap-3">
-        {isAuthed ? (
-          <>
-            <span className="text-sm opacity-80">Signed in: {username}</span>
-            <button onClick={logout} className="px-3 py-1 bg-black text-white rounded">Logout</button>
-          </>
-        ) : (
-          <button onClick={requestOtp} className="px-3 py-1 bg-black text-white rounded">
-            سجّل الدخول عبر سلة
-          </button>
-        )}
-      </div>
-    </header>
+    <div className="p-6">
+      <h1 className="text-2xl mb-2">مرحبًا 👋</h1>
+      <p className="mb-6">سجّل الدخول عبر سلة للوصول إلى لوحة التحكم الخاصة بمتجرك.</p>
+
+      {!isAuthed && (
+        <button onClick={loginWithSalla} className="px-4 py-2 bg-black text-white rounded">
+          سجّل الدخول عبر سلة
+        </button>
+      )}
+
+      {isAuthed && <p className="text-green-700">أنت مسجّل دخول بالفعل ✅</p>}
+    </div>
   );
 }
