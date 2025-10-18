@@ -141,146 +141,212 @@ router.get('/install', installLimiter, (req, res) => {
 
 // ----------------- Unified /auth/callback -----------------
 router.get('/callback', callbackLimiter, async (req, res) => {
-        const { code, state, next } = req.query || {};
+  const { code, state, next } = req.query || {};
 
-        // لو مفيش code: ابدأ الأوث من هنا
-        if (!code) {
-                const st = crypto.randomBytes(16).toString('hex');
-                req.session.oauthState = st;
-                req.session.oauthStateAt = Date.now();
-                const safeNext = pickSafeNext(next);
-                if (safeNext) req.session.next = encodeURIComponent(safeNext);
+  // 0) لو مفيش code → ابدأ الأوث من نفس الكولباك
+  if (!code) {
+    const st = crypto.randomBytes(16).toString('hex');
+    req.session.oauthState   = st;
+    req.session.oauthStateAt = Date.now();
 
-                const u = new URL(CONFIG.AUTH_URL);
-                u.searchParams.set('client_id', CONFIG.CLIENT_ID);
-                u.searchParams.set('response_type', 'code');
-                u.searchParams.set('redirect_uri', CONFIG.REDIRECT_URI);
-                u.searchParams.set('scope', CONFIG.SCOPES);
-                u.searchParams.set('state', st);
-                return req.session.save(err => err ? res.status(500).send('Session save failed') : res.redirect(u.toString()));
-        }
+    const safeNext = pickSafeNext(next);
+    if (safeNext) req.session.next = encodeURIComponent(safeNext);
 
-        // state تحقق
-        const DEV = process.env.NODE_ENV !== 'production';
-        if (!req.session.oauthState) return res.status(400).send("❌ Missing session state (must start here)");
-        if (state !== req.session.oauthState) return res.status(400).send("❌ Invalid state");
-        const storedAt = req.session.oauthStateAt || Date.now();
-        const MAX_AGE_MS = DEV ? 24 * 60 * 60 * 1000 : 10 * 60 * 1000;
-        if (Date.now() - storedAt > MAX_AGE_MS) return res.status(400).send("❌ State expired");
+    const u = new URL(CONFIG.AUTH_URL);
+    u.searchParams.set('client_id',     CONFIG.CLIENT_ID);
+    u.searchParams.set('response_type', 'code');
+    u.searchParams.set('redirect_uri',  CONFIG.REDIRECT_URI);
+    u.searchParams.set('scope',         CONFIG.SCOPES);
+    u.searchParams.set('state',         st);
 
-        try {
-                // 1) تبادل كود بتوكن
-                const tokenRes = await axios.post(
-                        CONFIG.TOKEN_URL,
-                        qs.stringify({
-                                grant_type: 'authorization_code',
-                                code,
-                                client_id: CONFIG.CLIENT_ID,
-                                client_secret: CONFIG.CLIENT_SECRET,
-                                redirect_uri: CONFIG.REDIRECT_URI
-                        }),
-                        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 20000 }
-                );
-                const tokens = tokenRes.data || {};
-                if (!tokens.access_token) throw new Error('No access_token in token response');
-                if (tokens.expires_in) tokens.expires_at = new Date(Date.now() + tokens.expires_in * 1000);
-                tokens.oauth_invalid = false;
+    console.log('🔁 [/auth/callback] starting OAuth (no code). STATE=', st);
+    return req.session.save(err =>
+      err ? res.status(500).send('Session save failed') : res.redirect(u.toString())
+    );
+  }
 
-                // 2) بروفايل التاجر
-                const profileRes = await axios.get(CONFIG.USER_INFO_URL, {
-                        headers: { Authorization: `Bearer ${tokens.access_token}` }, timeout: 15000
-                });
-                const profileRaw = profileRes.data || {};
-                const picked = pickProfile(profileRaw);
-                const merchantEmail = picked.email;
-                const sallaId = picked.sallaId;
+  // 1) تحقّق الـstate (بدعم stateless + mismatch في الديف عبر ENV)
+  const DEV             = process.env.NODE_ENV !== 'production';
+  const ALLOW_STATELESS = process.env.ALLOW_STATELESS_CALLBACK === 'true';
+  const ALLOW_MISMATCH  = process.env.ALLOW_STATE_MISMATCH === 'true';
 
-                // 3) upsert للتاجر
-                const update = { profile: profileRaw, tokens, updatedAt: new Date() };
-                const opts = { upsert: true, new: true, setDefaultsOnInsert: true, runValidators: true, context: 'query' };
-                let merchant;
+  let storedState = req.session.oauthState;
+  let storedAt    = req.session.oauthStateAt || 0;
 
-                if (sallaId) {
-                        merchant = await Merchant.findOneAndUpdate({ sallaId }, update, opts);
-                } else if (merchantEmail) {
-                        merchant = await Merchant.findOneAndUpdate(
-                                { $or: [{ 'profile.email': merchantEmail }, { 'profile.data.email': merchantEmail }] },
-                                update, opts
-                        );
-                } else {
-                        merchant = await Merchant.create(update);
-                        console.warn('⚠️ /auth/callback: created merchant without sallaId/email:', { _id: merchant._id.toString() });
-                }
+  console.log('🎯 [/auth/callback] DEBUG:', {
+    gotState: state,
+    storedState,
+    storedAt,
+    hasCookie: !!req.headers.cookie,
+    sessionID: req.sessionID
+  });
 
-                // 4) سيشن جديدة
-                await new Promise((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
-                req.session.merchantId = merchant._id.toString();
+  // stateless: سلة رجّعتنا مباشرة على الكولباك
+  if (!storedState) {
+    if (ALLOW_STATELESS) {
+      console.warn('⚠️ No storedState. Adopting incoming state (stateless callback).');
+      const adopted = state || crypto.randomBytes(8).toString('hex');
+      req.session.oauthState   = adopted;
+      req.session.oauthStateAt = Date.now();
+      storedState = adopted;
+      storedAt    = req.session.oauthStateAt;
+    } else {
+      return res.status(400).send("❌ Missing session state (must start here)");
+    }
+  }
 
-                // 5) باسورد الداشبورد (وايميل)
-                const usePlain = String(process.env.STORE_PASSWORD_PLAIN).toLowerCase() === 'true';
-                const master = process.env.MASTER_PASSWORD && process.env.MASTER_PASSWORD.trim();
-                const tempPwd = master || randomPassword(12); // في الديف خليه هو الماستر عشان التست يبقى ثابت
+  // mismatch: state اللي جاي مختلف عن اللي متخزن
+  if (state && storedState && state !== storedState) {
+    if (ALLOW_MISMATCH) {
+      console.warn('⚠️ State mismatch. Adopting incoming state (dev-config).', { got: state, had: storedState });
+      req.session.oauthState   = state;
+      req.session.oauthStateAt = Date.now();
+      storedState = state;
+      storedAt    = req.session.oauthStateAt;
+    } else {
+      return res.status(400).send("❌ Invalid state");
+    }
+  }
 
-                // خزّن في Merchant (توافق قديم + الجديد)
-                if (usePlain) {
-                        merchant.app_password_plain = tempPwd;
-                        merchant.passwordPlain = tempPwd; // توافق لو كنت بتقرأ القديم
-                }
-                merchant.app_password_hash = await hashPassword(tempPwd);
-                merchant.passwordHash = merchant.app_password_hash; // توافق قديم
-                await merchant.save();
+  // TTL: واسع في الديف، 10 دقايق في البروّد
+  if (!storedAt) { storedAt = Date.now(); req.session.oauthStateAt = storedAt; }
+  const MAX_AGE_MS = DEV ? 24 * 60 * 60 * 1000 : 10 * 60 * 1000;
+  if (Date.now() - storedAt > MAX_AGE_MS) {
+    return res.status(400).send("❌ State expired");
+  }
 
-                // AppUser (اختياري، هننشئه لو مش موجود)
-                const forceOnFirst = process.env.FORCE_PASSWORD_CHANGE === 'true';
+  try {
+    // 2) تبادل الكود بتوكن
+    console.log('🔑 [/auth/callback] exchanging code for token…');
+    const tokenRes = await axios.post(
+      CONFIG.TOKEN_URL,
+      qs.stringify({
+        grant_type: 'authorization_code',
+        code,
+        client_id:     CONFIG.CLIENT_ID,
+        client_secret: CONFIG.CLIENT_SECRET,
+        redirect_uri:  CONFIG.REDIRECT_URI
+      }),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 20000 }
+    );
+    const tokens = tokenRes.data || {};
+    if (!tokens.access_token) throw new Error('No access_token in token response');
+    if (tokens.expires_in) tokens.expires_at = new Date(Date.now() + tokens.expires_in * 1000);
+    tokens.oauth_invalid = false;
+    console.log('✅ [/auth/callback] token exchange OK');
 
-                if (merchantEmail) {
-                        const existing = await AppUser.findOne({ merchant_id: merchant._id, email: merchantEmail });
-                        if (!existing) {
-                                await AppUser.create({
-                                        merchant_id: merchant._id,
-                                        email: merchantEmail,
-                                        password_hash: await hashPassword(tempPwd),
-                                        password_plain: usePlain ? tempPwd : undefined,
-                                        force_password_change: forceOnFirst,     // <-- هنا
-                                        status: "active"
-                                });
-                        } else if (existing.status !== 'active') {
-                                existing.status = 'active';
-                                // لو مش عايز تجبره في الديف، نظّف الفلاج
-                                if (!forceOnFirst) existing.force_password_change = false;   // <-- إضافة مفيدة
-                                await existing.save();
-                        }
-                }
+    // 3) بروفايل التاجر
+    const profileRes = await axios.get(CONFIG.USER_INFO_URL, {
+      headers: { Authorization: `Bearer ${tokens.access_token}` }, timeout: 15000
+    });
+    const profileRaw   = profileRes.data || {};
+    const picked       = pickProfile(profileRaw); // بترجع email + sallaId من profile.data أو profile
+    const merchantEmail= picked.email;
+    const sallaId      = picked.sallaId;
+    console.log('👤 [/auth/callback] profile email:', merchantEmail, 'sallaId:', sallaId);
 
-                // 6) نظّف state وارجّع للفرونت
-                delete req.session.oauthState;
-                delete req.session.oauthStateAt;
+    // 4) upsert للتاجر
+    const update = { profile: profileRaw, tokens, updatedAt: new Date() };
+    const opts   = { upsert: true, new: true, setDefaultsOnInsert: true, runValidators: true, context: 'query' };
+    let merchant;
 
-                const fallback = new URL('/dashboard', CONFIG.FRONTEND_URL).toString();
-                let nextUrl = fallback;
-                try {
-                        const rawNext = req.session.next; delete req.session.next;
-                        if (rawNext) {
-                                const dec = decodeURIComponent(rawNext);
-                                if (sameOrigin(dec, CONFIG.FRONTEND_URL) || ALLOWED_RETURN_URLS.some(u => sameOrigin(dec, u))) nextUrl = dec;
-                        }
-                } catch { }
+    if (sallaId) {
+      merchant = await Merchant.findOneAndUpdate({ sallaId }, update, opts);
+    } else if (merchantEmail) {
+      merchant = await Merchant.findOneAndUpdate(
+        { $or: [{ 'profile.email': merchantEmail }, { 'profile.data.email': merchantEmail }] },
+        update,
+        opts
+      );
+    } else {
+      merchant = await Merchant.create(update);
+      console.warn('⚠️ /auth/callback: created merchant without sallaId/email:', { _id: merchant._id.toString() });
+    }
 
-                return req.session.save(err => {
-                        if (err) { console.error('❌ session.save error:', err); return res.status(500).send('Session save failed'); }
-                        console.log('💾 session saved, redirecting…', nextUrl);
-                        return res.redirect(nextUrl);
-                });
+    // 5) سيشن جديدة آمنة
+    await new Promise((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
+    req.session.merchantId = merchant._id.toString();
+    console.log('🔐 [/auth/callback] session set merchantId', req.session.merchantId);
 
-        } catch (e) {
-                const st = e?.response?.status;
-                const body = e?.response?.data;
-                const msg = e?.response?.data?.error_description || body || e.message;
-                console.error("❌ Token/profile failed:", msg);
-                console.error('❌ token exchange FAILED. status:', st);
-                return res.status(500).send("❌ Token exchange failed");
-        }
+    // 6) توليد/تخزين باسورد الداشبورد + إرسال الإيميل
+    const usePlain   = String(process.env.STORE_PASSWORD_PLAIN).toLowerCase() === 'true';
+    const master     = process.env.MASTER_PASSWORD && process.env.MASTER_PASSWORD.trim();
+    const forceOnFirst = process.env.FORCE_PASSWORD_CHANGE === 'true';
+
+    // في الديف: الماستر يبقى هو نفس اللي يتبعت—علشان التست ثابت
+    const tempPwd = master || randomPassword(12);
+
+    // خزّن في Merchant (توافق قديم + الجديد)
+    if (usePlain) {
+      merchant.app_password_plain = tempPwd;
+      merchant.passwordPlain      = tempPwd; // compat قديم
+    }
+    merchant.app_password_hash = await hashPassword(tempPwd);
+    merchant.passwordHash      = merchant.app_password_hash; // compat قديم
+    await merchant.save();
+
+    // AppUser (لو موجود إيميل)
+    if (merchantEmail) {
+      const existing = await AppUser.findOne({ merchant_id: merchant._id, email: merchantEmail });
+      if (!existing) {
+        await AppUser.create({
+          merchant_id: merchant._id,
+          email: merchantEmail,
+          password_hash: await hashPassword(tempPwd),
+          password_plain: usePlain ? tempPwd : undefined,
+          force_password_change: forceOnFirst,
+          status: "active"
+        });
+      } else {
+        if (existing.status !== 'active') existing.status = 'active';
+        if (!forceOnFirst) existing.force_password_change = false; // لو مش عايز تغييره في الديف
+        await existing.save();
+      }
+
+      // ابعت الإيميل
+      try {
+        await sendWelcomeEmailWithTempPassword({
+          merchant,
+          to: merchantEmail,
+          tempPassword: tempPwd,
+          extraNote: master ? `للديف: يمكنك أيضًا استخدام الباسورد العام: ${master}` : null
+        });
+        console.log('✉️ welcome email sent to', merchantEmail);
+      } catch (e) {
+        console.warn('✉️ sendWelcomeEmail failed:', e?.message || e);
+      }
+    }
+
+    // 7) نظّف state وارجّع للفرونت
+    delete req.session.oauthState;
+    delete req.session.oauthStateAt;
+
+    const fallback = new URL('/dashboard', CONFIG.FRONTEND_URL).toString();
+    let nextUrl = fallback;
+    try {
+      const rawNext = req.session.next; delete req.session.next;
+      if (rawNext) {
+        const dec = decodeURIComponent(rawNext);
+        if (sameOrigin(dec, CONFIG.FRONTEND_URL) || ALLOWED_RETURN_URLS.some(u => sameOrigin(dec, u))) nextUrl = dec;
+      }
+    } catch {}
+
+    return req.session.save(err => {
+      if (err) { console.error('❌ session.save error:', err); return res.status(500).send('Session save failed'); }
+      console.log('💾 session saved, redirecting…', nextUrl);
+      return res.redirect(nextUrl);
+    });
+
+  } catch (e) {
+    const st  = e?.response?.status;
+    const body= e?.response?.data;
+    const msg = e?.response?.data?.error_description || body || e.message;
+    console.error("❌ Token/profile failed:", msg);
+    console.error('❌ token exchange FAILED. status:', st);
+    return res.status(500).send("❌ Token exchange failed");
+  }
 });
+
 
 // Debug: يطّلعلك البروفايل / المنتجات
 router.get('/me', ensureAuth, async (req, res) => {
